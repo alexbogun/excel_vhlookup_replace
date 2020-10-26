@@ -1,4 +1,4 @@
-' function to replace all VLOOKUPS / HLOOKUPS in current selection
+' replace all VLOOKUPS / HLOOKUPS in current selection
 Sub Replace_lookups_in_selection()
     Application.Calculation = xlCalculationManual
     Application.ScreenUpdating = False
@@ -11,19 +11,19 @@ End Sub
 
 
 
-' function to replace all VLOOKUPS / HLOOKUPS in the whole workbook
+' replace all VLOOKUPS / HLOOKUPS in the whole workbook
 Sub Replace_all_lookups()
     Application.Calculation = xlCalculationManual
     Application.ScreenUpdating = False
-    Dim Sh As Worksheet
-    Dim i As Integer, n As Integer
+    Dim sh As Worksheet
+    Dim i As Integer, N As Integer
     
-    n = ThisWorkbook.Worksheets.Count
+    N = ThisWorkbook.Worksheets.Count
     i = 1
-    For Each Sh In ThisWorkbook.Worksheets
-        Call Replace_lookups_in_range(Sh.UsedRange)
+    For Each sh In ThisWorkbook.Worksheets
+        Call Replace_lookups_in_range(sh.UsedRange)
         Application.StatusBar = "Working on sheet " & i & " out of & n"
-    Next Sh
+    Next sh
     Application.StatusBar = False
     Application.ScreenUpdating = True
     Application.Calculation = xlCalculationAutomatic
@@ -31,12 +31,12 @@ End Sub
 
 
 
-' function to replace all VLOOKUPS / HLOOKUPS in a given range
-Sub Replace_lookups_in_range(R As Range)
+' replace all VLOOKUPS / HLOOKUPS in a given range
+Sub Replace_lookups_in_range(r As Range)
     Dim s1 As String, s2 As String, FirstFind As String
     Dim Loc As Range
 
-    With R
+    With r
         Set Loc = .Cells.Find(What:="LOOKUP")
         If Not Loc Is Nothing Then
             FirstFind = Loc.Address
@@ -56,7 +56,7 @@ End Sub
 
 
 ' help function to convert index numbers to r1c1 address
-Function r1c1(ByVal r1, ByVal r2, ByVal c1, ByVal c2, r1_r, r2_r, c1_r, c2_r) 'first 4 args - position, last 4 relative/absolute address
+Function r1c1(ByVal r1, ByVal r2, ByVal c1, ByVal c2, r1_r, r2_r, c1_r, c2_r) As String 'first 4 args - position, last 4 relative/absolute address
     Dim sep As String
     sep = ":"
     'handling of relative address
@@ -113,6 +113,8 @@ Function String_replace_lookup(ByVal s As String) As String
     Dim part0 As String, part1 As String, part2 As String, before As String, after As String
     Dim masked As Boolean, r1_r As Boolean, r2_r As Boolean, c1_r As Boolean, c2_r As Boolean
     Dim splt As Variant, splt1 As Variant, splt2 As Variant, r1 As Variant, r2 As Variant, c1 As Variant, c2 As Variant, col As Variant
+    Dim v As Variant
+    Dim sh As Worksheet
     Dim rName As Name
     ' when I write vlookup it also applies to hlookup
     
@@ -223,7 +225,7 @@ Function String_replace_lookup(ByVal s As String) As String
             'handle references to other sheets
             splt = Split(part1, "!")
             If UBound(splt) = 1 Then
-                part0 = splt(0) & "!"
+                part0 = splt(0)
                 part1 = splt(1)
             End If
             
@@ -286,6 +288,27 @@ Function String_replace_lookup(ByVal s As String) As String
                 iferr = "," + iferr
             End If
             
+            If mtch = ",-1" Then    ' check if index range is sorted
+                If part0 <> "" Then
+                    Set sh = Sheets(part0)
+                Else
+                    Set sh = ActiveSheet
+                End If
+                If look = "v" Then
+                    v = sh.Range(sh.Cells(CInt(r1), CInt(c1)).Address, sh.Cells(CInt(r2), CInt(c1)).Address).Value
+                Else
+                    v = sh.Range(sh.Cells(CInt(r1), CInt(c1)).Address, sh.Cells(CInt(r1), CInt(c2)).Address).Value
+                End If
+                If Not array_sorted(v) Then
+                    String_replace_lookup = s
+                    Exit Function
+                End If
+            End If
+            
+            If part0 <> "" Then
+                 part0 = part0 & "!"
+            End If
+            
             'actual replacement of the function
             If look = "v" Then
                 col = CStr(CInt(c1) + CInt(col) - 1)
@@ -302,4 +325,30 @@ Function String_replace_lookup(ByVal s As String) As String
     End If
         
     String_replace_lookup = s
+End Function
+
+
+' help function to determine if array is sorted
+Function array_sorted(v As Variant) As Boolean
+    Dim v2 As Variant
+    
+    If UBound(v, 1) = 1 Then v = WorksheetFunction.Transpose(v)
+    
+    v2 = WorksheetFunction.Sort(v)
+    
+    array_sorted = col_arrays_equal(v, v2)
+End Function
+
+
+' help function to determine if arrays are equal
+Function col_arrays_equal(v1 As Variant, v2 As Variant) As Boolean
+    Dim i As Integer
+    Dim r As Boolean
+    If UBound(v1, 1) = 1 Then v1 = WorksheetFunction.Transpose(v1)
+    If UBound(v2, 1) = 1 Then v2 = WorksheetFunction.Transpose(v2)
+    r = True
+    For i = 1 To UBound(v2)
+        If v1(i, 1) <> v2(i, 1) Then r = False
+    Next i
+    col_arrays_equal = r
 End Function
