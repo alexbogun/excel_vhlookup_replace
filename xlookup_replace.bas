@@ -1,3 +1,5 @@
+Dim table_names() As String
+
 ' replace all VLOOKUPS / HLOOKUPS in current selection
 Sub Replace_lookups_in_selection()
     Application.Calculation = xlCalculationManual
@@ -35,6 +37,7 @@ End Sub
 Sub Replace_lookups_in_range(r As Range)
     Dim s1 As String, s2 As String, FirstFind As String
     Dim Loc As Range
+    Call get_table_names
 
     With r
         Set Loc = .Cells.Find(What:="LOOKUP")
@@ -107,7 +110,7 @@ End Function
 ' function that does actual parsing of the formula string and replacement
 Function String_replace_lookup(ByVal s As String) As String
     Dim arg(4) As String
-    Dim i As Integer, j As Integer, n_par As Integer
+    Dim i As Integer, j As Integer, k As Integer, n_par As Integer
     Dim arg_n As Integer, found As Integer, first As Integer, last As Integer, from As Integer, m1 As Integer, m2 As Integer
     Dim look As String, s_vl As String, s_er As String, s_hl As String, iferr As String, mtch As String, ch As String
     Dim part0 As String, part1 As String, part2 As String, before As String, after As String
@@ -115,7 +118,7 @@ Function String_replace_lookup(ByVal s As String) As String
     Dim splt As Variant, splt1 As Variant, splt2 As Variant, r1 As Variant, r2 As Variant, c1 As Variant, c2 As Variant, col As Variant
     Dim v As Variant
     Dim sh As Worksheet
-    Dim rName As Name
+    Dim tbl As Variant
     ' when I write vlookup it also applies to hlookup
     
     arg(4) = "1"    ' default value of 4th argument for vlookup
@@ -184,12 +187,71 @@ Function String_replace_lookup(ByVal s As String) As String
                 End If
             Next i
             
-            If InStr(arg(2), ":") = 0 Then 'possibly named range?
-                For Each rName In Names
-                    If InStr(arg(2), rName.Name) Then 'look in named ranges and replace
-                        arg(2) = Replace(arg(2), rName.Name, Names(rName.Name).RefersToRange.Address(ReferenceStyle:=xlR1C1))
+            col = Trim(arg(3)) 'column index of (3rd arg of vlookup)
+            before = Left(s, first - 1) 'part before vlookup
+            after = Mid(s, last + 1, Len(s)) 'part after vlookup
+            
+            'handling match type argument
+            If ((arg(4) = "") Or (arg(4) = "TRUE") Or (arg(4) = "1")) Then
+                mtch = ",-1"
+            End If
+                        
+            'look for "iferror" before vlookup
+            If InStr(Right(before, 12), s_er) > 0 Then
+                m1 = InStr(after, ",") + 1
+                m2 = InStr(after, ")")
+                iferr = Mid(after, m1, m2 - m1) 'iferror argument
+                before = Left(before, Len(before) - Len(Right(before, 12))) & Left(Right(before, 12), InStr(Right(before, 12), s_er) - 1)
+                after = Mid(after, m2 + 1, Len(after))
+            End If
+            
+            If (Len(iferr) + Len(mtch) > 0) Then
+                iferr = "," + iferr
+            End If
+            
+            If InStr(arg(2), ":") = 0 Then
+                For k = names.Count To 1 Step -1 'possibly named range?
+                    If InStr(arg(2), names(k).Name) Then 'look in named ranges and replace
+                        arg(2) = Replace(arg(2), names(k).Name, names(names(k).Name).RefersToRange.Address(ReferenceStyle:=xlR1C1))
                     End If
-                Next rName
+                Next k
+                
+                For Each tbl In table_names ' possibly table?
+                    If InStr(arg(2), tbl) Then
+                        If look = "v" Then
+                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[v1]" & "," & tbl & "[v" & CInt(col) & "]" & iferr & mtch & ")" & after
+                            s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
+                            Exit Do
+                        Else
+                            arg(2) = Replace(arg(2), tbl, Range(tbl).Worksheet.Name & "!" & Range(tbl).Address(ReferenceStyle:=xlR1C1))
+                        End If
+                    End If
+                Next tbl
+            End If
+            
+            If (InStr(arg(2), "[[")) Then ' possibly table?
+                For Each tbl In table_names
+                    If InStr(arg(2), tbl) Then
+                        If look = "v" Then
+                            'extract numbers
+                            arg(2) = Replace(arg(2), tbl, "")
+                            arg(2) = Replace(arg(2), "[", "")
+                            arg(2) = Replace(arg(2), "]", "")
+                            arg(2) = Replace(arg(2), "v", "")
+                            splt = Split(arg(2), ":")
+                            If UBound(splt) <> 1 Then Exit Do 'if not exactly 2 parts abort
+                            
+                            c1 = CInt(Trim(splt(0)))
+                            c2 = CInt(Trim(splt(1)))
+                            c2 = CInt(col) + c1 - 1
+                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[v" & c1 & "]" & "," & tbl & "[v" & c2 & "]" & iferr & mtch & ")" & after
+                            s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
+                            Exit Do
+                        Else
+                            arg(2) = Replace(arg(2), tbl, Range(tbl).Worksheet.Name & "!" & Range(tbl).Address(ReferenceStyle:=xlR1C1))
+                        End If
+                    End If
+                Next tbl
             End If
             
             ' cleanup RC expressions
@@ -201,9 +263,7 @@ Function String_replace_lookup(ByVal s As String) As String
             
             'split reference in part before and after semicolon
             splt = Split(arg(2), ":")
-            If UBound(splt) <> 1 Then 'if not exactly 2 parts abort
-                Exit Do
-            End If
+            If UBound(splt) <> 1 Then Exit Do 'if not exactly 2 parts abort
             
             part1 = splt(0)
             part2 = splt(1)
@@ -239,19 +299,11 @@ Function String_replace_lookup(ByVal s As String) As String
                 Exit Do
             End If
                         
-            before = Left(s, first - 1) 'part before vlookup
-            after = Mid(s, last + 1, Len(s)) 'part after vlookup
             r1 = Trim(splt1(0)) 'extract numbers from r1c1:r2c2
             c1 = Trim(splt1(1))
             r2 = Trim(splt2(0))
             c2 = Trim(splt2(1))
-            col = Trim(arg(3)) 'column index of (3rd arg of vlookup)
-            
-            'handling match type argument
-            If ((arg(4) = "") Or (arg(4) = "TRUE") Or (arg(4) = "1")) Then
-                mtch = ",-1"
-            End If
-            
+                        
             'handling relative addresses
             If InStr(r1, "[") Then
                 r1 = Replace(Replace(r1, "[", ""), "]", "")
@@ -273,19 +325,6 @@ Function String_replace_lookup(ByVal s As String) As String
             'check if all valid numbers
             If Not (IsNumeric(r1) And IsNumeric(r2) And IsNumeric(c1) And IsNumeric(c2) And IsNumeric(col)) Then
                 Exit Do
-            End If
-
-            'look for "iferror" before vlookup
-            If InStr(Right(before, 12), s_er) > 0 Then
-                m1 = InStr(after, ",") + 1
-                m2 = InStr(after, ")")
-                iferr = Mid(after, m1, m2 - m1) 'iferror argument
-                before = Left(before, Len(before) - Len(Right(before, 12))) & Left(Right(before, 12), InStr(Right(before, 12), s_er) - 1)
-                after = Mid(after, m2 + 1, Len(after))
-            End If
-            
-            If (Len(iferr) + Len(mtch) > 0) Then
-                iferr = "," + iferr
             End If
             
             If mtch = ",-1" Then    ' check if index range is sorted
@@ -352,3 +391,50 @@ Function col_arrays_equal(v1 As Variant, v2 As Variant) As Boolean
     Next i
     col_arrays_equal = r
 End Function
+
+
+
+' get names of all tables
+Sub get_table_names()
+    Dim res() As String
+    Dim i As Integer
+    Dim ws As Worksheet
+    Dim tbl As ListObject
+    i = 1
+    For Each ws In Worksheets
+        For Each tbl In ws.ListObjects
+            ReDim Preserve res(1 To i)
+            res(i) = tbl.Name
+            i = i + 1
+        Next tbl
+    Next ws
+    res = bubble_sort(res, True)
+    table_names = res
+End Sub
+
+
+
+' bubble sort, yeah it is slow, I was lazy, but it should not matter
+Function bubble_sort(arr As Variant, Optional descending As Boolean = False)
+    Dim i As Integer, j As Integer
+    Dim t As Variant
+        For i = LBound(arr) To UBound(arr) - 1
+            For j = i + 1 To UBound(arr)
+                If descending Then
+                    If arr(i) < arr(j) Then
+                        t = arr(j)
+                        arr(j) = arr(i)
+                        arr(i) = t
+                    End If
+                Else
+                    If arr(i) > arr(j) Then
+                        t = arr(j)
+                        arr(j) = arr(i)
+                        arr(i) = t
+                    End If
+                End If
+            Next j
+        Next i
+    bubble_sort = arr
+End Function
+
