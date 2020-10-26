@@ -1,4 +1,3 @@
-Attribute VB_Name = "functions"
 ' function to replace all VLOOKUPS / HLOOKUPS in current selection
 Sub Replace_lookups_in_selection()
     Application.Calculation = xlCalculationManual
@@ -17,9 +16,7 @@ Sub Replace_all_lookups()
     Application.Calculation = xlCalculationManual
     Application.ScreenUpdating = False
     Dim Sh As Worksheet
-    Dim Loc As Range
-    Dim s1, s2, FirstFind As String
-    Dim i, n As Integer
+    Dim i As Integer, n As Integer
     
     n = ThisWorkbook.Worksheets.Count
     i = 1
@@ -36,7 +33,7 @@ End Sub
 
 ' function to replace all VLOOKUPS / HLOOKUPS in a given range
 Sub Replace_lookups_in_range(R As Range)
-    Dim s1, s2, FirstFind As String
+    Dim s1 As String, s2 As String, FirstFind As String
     Dim Loc As Range
 
     With R
@@ -110,10 +107,12 @@ End Function
 ' function that does actual parsing of the formula string and replacement
 Function String_replace_lookup(ByVal s As String) As String
     Dim arg(4) As String
-    Dim i, j, r1, r2, c1, c2, col, n_par, arg_n, found, first, last, from, before, after, m1, m2 As Integer
-    Dim look, s_vl, s_er, s_hl, iferr, mtch, ch, part0, part1, part2 As String
-    Dim masked, r1_r, r2_r, c1_r, c2_r As Boolean
-    Dim splt, splt1, splt2 As Variant
+    Dim i As Integer, j As Integer, n_par As Integer
+    Dim arg_n As Integer, found As Integer, first As Integer, last As Integer, from As Integer, m1 As Integer, m2 As Integer
+    Dim look As String, s_vl As String, s_er As String, s_hl As String, iferr As String, mtch As String, ch As String
+    Dim part0 As String, part1 As String, part2 As String, before As String, after As String
+    Dim masked As Boolean, r1_r As Boolean, r2_r As Boolean, c1_r As Boolean, c2_r As Boolean
+    Dim splt As Variant, splt1 As Variant, splt2 As Variant, r1 As Variant, r2 As Variant, c1 As Variant, c2 As Variant, col As Variant
     Dim rName As Name
     ' when I write vlookup it also applies to hlookup
     
@@ -304,4 +303,3 @@ Function String_replace_lookup(ByVal s As String) As String
         
     String_replace_lookup = s
 End Function
-
