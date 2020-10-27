@@ -1,13 +1,13 @@
 Dim table_names() As String
 Dim table_headers As Collection
 
-' replace all VLOOKUPS / HLOOKUPS in current selection
-Sub Replace_lookups_in_selection()
+' replace all VLOOKUPS / HLOOKUPS in current selection to XLOOKUP
+Sub Replace_lookups_in_selection_to_xlookup()
     Application.Calculation = xlCalculationManual
     Application.ScreenUpdating = False
     
     Call get_table_names
-    Call Replace_lookups_in_range(Selection, False)
+    Call Replace_lookups_in_range(Selection, False, False)
     
     Application.ScreenUpdating = True
     Application.Calculation = xlCalculationAutomatic
@@ -15,8 +15,8 @@ End Sub
 
 
 
-' replace all VLOOKUPS / HLOOKUPS in the whole workbook
-Sub Replace_all_lookups()
+' replace all VLOOKUPS / HLOOKUPS in the whole workbook to XLOOKUP
+Sub Replace_all_lookups_to_xlookup()
     Application.Calculation = xlCalculationManual
     Application.ScreenUpdating = False
     Dim sh As Worksheet
@@ -27,7 +27,43 @@ Sub Replace_all_lookups()
     N = ThisWorkbook.Worksheets.Count
     i = 1
     For Each sh In ThisWorkbook.Worksheets
-        Call Replace_lookups_in_range(sh.UsedRange, False)
+        Call Replace_lookups_in_range(sh.UsedRange, False, False)
+        Application.StatusBar = "Working on sheet " & i & " out of & n"
+    Next sh
+    Application.StatusBar = False
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+End Sub
+
+
+
+' replace all VLOOKUPS / HLOOKUPS in current selection to INDEX / MATCH
+Sub Replace_lookups_in_selection_to_indexmatch()
+    Application.Calculation = xlCalculationManual
+    Application.ScreenUpdating = False
+    
+    Call get_table_names
+    Call Replace_lookups_in_range(Selection, True, False)
+    
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+End Sub
+
+
+
+' replace all VLOOKUPS / HLOOKUPS in the whole workbook to INDEX / MATCH
+Sub Replace_all_lookups_to_indexmatch()
+    Application.Calculation = xlCalculationManual
+    Application.ScreenUpdating = False
+    Dim sh As Worksheet
+    Dim i As Integer, N As Integer
+    
+    Call get_table_names
+    
+    N = ThisWorkbook.Worksheets.Count
+    i = 1
+    For Each sh In ThisWorkbook.Worksheets
+        Call Replace_lookups_in_range(sh.UsedRange, True, False)
         Application.StatusBar = "Working on sheet " & i & " out of & n"
     Next sh
     Application.StatusBar = False
@@ -38,29 +74,55 @@ End Sub
 
 
 ' replace all VLOOKUPS / HLOOKUPS in a given range
-Sub Replace_lookups_in_range(r As Range, Optional load_tables As Boolean = True)
+Sub Replace_lookups_in_range(r As Range, Optional indexmatch As Boolean = False, Optional load_tables As Boolean = True)
     Dim s1 As String, s2 As String, FirstFind As String
     Dim Loc As Range
+    Dim i As Integer, j As Integer, i1 As Integer, j1 As Integer
+    i = 1
     
     If load_tables Then Call get_table_names
 
     With r
         Set Loc = .Cells.Find(what:="LOOKUP")
         If Not Loc Is Nothing Then
-            FirstFind = Loc.Address
+            i1 = Loc.Row
+            j1 = Loc.Column
             Do
                 s1 = Loc.Formula2R1C1
-                s2 = String_replace_lookup(s1)
+                s2 = String_replace_lookup(s1, indexmatch)
                 If s2 <> s1 Then
                     Loc.FormulaR1C1 = s2
                 End If
+                i = Loc.Row
+                j = Loc.Column
+                If (i < i1) Or (i = i1 And j < j1) Then Exit Do ' searched whole array
                 Set Loc = .FindNext(Loc)
-            Loop While Not Loc Is Nothing And Loc.Address <> FirstFind
+            Loop While (Not Loc Is Nothing)
         End If
     End With
 End Sub
 
 
+
+Sub testsdf()
+    Dim Loc As Range
+    Dim i As Integer, j As Integer, i1 As Integer, j1 As Integer
+    With Selection
+        Set Loc = .Cells.Find(what:="yes")
+        If Not Loc Is Nothing Then
+            i1 = Loc.Row
+            j1 = Loc.Column
+            Do
+                Loc.Value = "no"
+                Debug.Print Loc.Row & ", " & Loc.Column
+                i = Loc.Row
+                j = Loc.Column
+                If (i < i1) Or (i = i1 And j < j1) Then Exit Do ' searched whole array
+                Set Loc = .FindNext(Loc)
+            Loop While (Not Loc Is Nothing)
+        End If
+    End With
+End Sub
 
 
 ' help function to convert index numbers to r1c1 address
@@ -113,7 +175,7 @@ End Function
 
 
 ' function that does actual parsing of the formula string and replacement
-Function String_replace_lookup(ByVal s As String) As String
+Function String_replace_lookup(ByVal s As String, Optional Index_match As Boolean = False) As String
     Dim arg(4) As String
     Dim i As Integer, j As Integer, k As Integer, n_par As Integer
     Dim arg_n As Integer, found As Integer, first As Integer, last As Integer, from As Integer, m1 As Integer, m2 As Integer
@@ -339,7 +401,7 @@ Function String_replace_lookup(ByVal s As String) As String
                 End If
             End If
             
-            If mtch = ",-1" Then    ' check if index range is sorted
+            If mtch = ",-1" And Not Index_match Then    ' check if index range is sorted
                 If from_table Then
                     v = Range(findwhere).Value
                 Else
@@ -362,9 +424,19 @@ Function String_replace_lookup(ByVal s As String) As String
             End If
                
             'actual replacement of the function
-            s = before & "XLOOKUP(" & findwhat & "," & findwhere & "," & takefrom & iferr & mtch & ")" & after
-                        
-            s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
+            If Index_match Then
+                If Not arg(4) = "" Then arg(4) = "," & arg(4)
+                If look = "v" Then
+                    s = "INDEX(" & takefrom & ",MATCH(" & findwhat & "," & findwhere & arg(4) & "))"
+                Else
+                    s = "INDEX(" & takefrom & ",1,MATCH(" & findwhat & "," & findwhere & arg(4) & "))"
+                End If
+                If (iferr <> "") And (iferr <> ",") Then s = "IFERROR(" & s & iferr & ")"
+                s = before & s & after
+            Else
+                s = before & "XLOOKUP(" & findwhat & "," & findwhere & "," & takefrom & iferr & mtch & ")" & after
+            End If
+            s = String_replace_lookup(s, Index_match) 'recursive call to handle multiple v/hlookups in the same formula
             
         Exit Do
         Loop
