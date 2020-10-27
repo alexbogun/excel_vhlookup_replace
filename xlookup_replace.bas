@@ -45,7 +45,7 @@ Sub Replace_lookups_in_range(r As Range, Optional load_tables As Boolean = True)
     If load_tables Then Call get_table_names
 
     With r
-        Set Loc = .Cells.Find(What:="LOOKUP")
+        Set Loc = .Cells.Find(what:="LOOKUP")
         If Not Loc Is Nothing Then
             FirstFind = Loc.Address
             Do
@@ -117,13 +117,15 @@ Function String_replace_lookup(ByVal s As String) As String
     Dim arg(4) As String
     Dim i As Integer, j As Integer, k As Integer, n_par As Integer
     Dim arg_n As Integer, found As Integer, first As Integer, last As Integer, from As Integer, m1 As Integer, m2 As Integer
-    Dim look As String, s_vl As String, s_er As String, s_hl As String, iferr As String, mtch As String, ch As String
+    Dim look As String, s_vl As String, s_er As String, s_hl As String, ch As String
     Dim part0 As String, part1 As String, part2 As String, before As String, after As String
-    Dim masked As Boolean, r1_r As Boolean, r2_r As Boolean, c1_r As Boolean, c2_r As Boolean
+    Dim findwhat As String, findwhere As String, takefrom As String, iferr As String, mtch As String 'arguments or resulting XLOOKUP function
+    Dim masked As Boolean, r1_r As Boolean, r2_r As Boolean, c1_r As Boolean, c2_r As Boolean 'relative address?
     Dim splt As Variant, splt1 As Variant, splt2 As Variant, r1 As Variant, r2 As Variant, c1 As Variant, c2 As Variant, col As Variant
     Dim v As Variant
     Dim sh As Worksheet
     Dim tbl As Variant
+    Dim from_table As Boolean
     ' when I write vlookup it also applies to hlookup
     
     arg(4) = "1"    ' default value of 4th argument for vlookup
@@ -131,13 +133,6 @@ Function String_replace_lookup(ByVal s As String) As String
     s_vl = "VLOOKUP("
     s_hl = "HLOOKUP("
     s_er = "IFERROR("
-    part0 = "" 'other sheet reference
-    iferr = "" 'iferror argument
-    mtch = ""  'match type argument
-    r1_r = False    'relative address?
-    r2_r = False
-    c1_r = False
-    c2_r = False
     
     n_par = 1       ' number of parenthesis encountered
     found = InStr(s, s_vl) ' found vlookup
@@ -192,7 +187,8 @@ Function String_replace_lookup(ByVal s As String) As String
                 End If
             Next i
             
-            col = Trim(arg(3)) 'column index of (3rd arg of vlookup)
+            findwhat = arg(1) 'first component is unchanged (what we are looking for)
+            col = CInt(Trim(arg(3))) 'column index of (3rd arg of vlookup)
             before = Left(s, first - 1) 'part before vlookup
             after = Mid(s, last + 1, Len(s)) 'part after vlookup
             
@@ -224,9 +220,9 @@ Function String_replace_lookup(ByVal s As String) As String
                 For Each tbl In table_names ' possibly table?
                     If InStr(arg(2), tbl) Then
                         If look = "v" Then
-                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[" & table_headers(tbl)(1, 1) & "]" & "," & tbl & "[" & table_headers(tbl)(1, CInt(col)) & "]" & iferr & mtch & ")" & after
-                            s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
-                            Exit Do
+                            findwhere = tbl & "[" & table_headers(tbl)(1, 1) & "]"
+                            takefrom = tbl & "[" & table_headers(tbl)(1, CInt(col)) & "]"
+                            from_table = True
                         Else
                             arg(2) = Replace(arg(2), tbl, Range(tbl).Worksheet.Name & "!" & Range(tbl).Address(ReferenceStyle:=xlR1C1))
                         End If
@@ -246,9 +242,9 @@ Function String_replace_lookup(ByVal s As String) As String
                             If UBound(splt) <> 1 Then Exit Do 'if not exactly 2 parts abort
                             c1 = Application.Match(Trim(splt(0)), table_headers(tbl), False)
                             c2 = CInt(col) + c1 - 1
-                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[" & table_headers(tbl)(1, c1) & "]" & "," & tbl & "[" & table_headers(tbl)(1, c2) & "]" & iferr & mtch & ")" & after
-                            s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
-                            Exit Do
+                            findwhere = tbl & "[" & table_headers(tbl)(1, c1) & "]"
+                            takefrom = tbl & "[" & table_headers(tbl)(1, c2) & "]"
+                            from_table = True
                         Else
                             arg(2) = Replace(arg(2), tbl, Range(tbl).Worksheet.Name & "!" & Range(tbl).Address(ReferenceStyle:=xlR1C1))
                         End If
@@ -256,109 +252,118 @@ Function String_replace_lookup(ByVal s As String) As String
                 Next tbl
             End If
             
-            ' cleanup RC expressions
-            arg(2) = Replace(arg(2), "RC", "R[0]C") 'if no number after R -> relative reference current row
-            arg(2) = Replace(arg(2), "C:", "C[0]:") 'same for cols first part
-            If Right(arg(2), 2) = "]C" Then 'second part
-                arg(2) = arg(2) & "[0]"
-            End If
-            
-            'split reference in part before and after semicolon
-            splt = Split(arg(2), ":")
-            If UBound(splt) <> 1 Then Exit Do 'if not exactly 2 parts abort
-            
-            part1 = splt(0)
-            part2 = splt(1)
-            
-            'handle references to whole rows / columns
-            If InStr(part1, "R") = 0 Then
-                part1 = Replace(part1, "C", "R0C")
-            End If
-            If InStr(part2, "R") = 0 Then
-                part2 = Replace(part2, "C", "R0C")
-            End If
-            If InStr(part1, "C") = 0 Then
-                part1 = part1 & "C0"
-            End If
-            If InStr(part2, "C") = 0 Then
-                part2 = part2 & "C0"
-            End If
-            
-            'handle references to other sheets
-            splt = Split(part1, "!")
-            If UBound(splt) = 1 Then
-                part0 = splt(0)
-                part1 = splt(1)
-            End If
-            
-            'extract numbers of rows and columns
-            part1 = Replace(part1, "R", "")
-            part2 = Replace(part2, "R", "")
-            splt1 = Split(part1, "C")
-            splt2 = Split(part2, "C")
-            
-            If (UBound(splt1) <> 1) Or (UBound(splt2) <> 1) Then
-                Exit Do
-            End If
-                        
-            r1 = Trim(splt1(0)) 'extract numbers from r1c1:r2c2
-            c1 = Trim(splt1(1))
-            r2 = Trim(splt2(0))
-            c2 = Trim(splt2(1))
-                        
-            'handling relative addresses
-            If InStr(r1, "[") Then
-                r1 = Replace(Replace(r1, "[", ""), "]", "")
-                r1_r = True
-            End If
-            If InStr(r2, "[") Then
-                r2 = Replace(Replace(r2, "[", ""), "]", "")
-                r2_r = True
-            End If
-            If InStr(c1, "[") Then
-                c1 = Replace(Replace(c1, "[", ""), "]", "")
-                c1_r = True
-            End If
-            If InStr(c2, "[") Then
-                c2 = Replace(Replace(c2, "[", ""), "]", "")
-                c2_r = True
-            End If
-            
-            'check if all valid numbers
-            If Not (IsNumeric(r1) And IsNumeric(r2) And IsNumeric(c1) And IsNumeric(c2) And IsNumeric(col)) Then
-                Exit Do
+            If findwhere = "" Then ' we have not yet found results (e.g. from table)
+                ' cleanup RC expressions
+                arg(2) = Replace(arg(2), "RC", "R[0]C") 'if no number after R -> relative reference current row
+                arg(2) = Replace(arg(2), "C:", "C[0]:") 'same for cols first part
+                If Right(arg(2), 2) = "]C" Then 'second part
+                    arg(2) = arg(2) & "[0]"
+                End If
+                
+                'split reference in part before and after semicolon
+                splt = Split(arg(2), ":")
+                If UBound(splt) <> 1 Then Exit Do 'if not exactly 2 parts abort
+                
+                part1 = splt(0)
+                part2 = splt(1)
+                
+                'handle references to whole rows / columns
+                If InStr(part1, "R") = 0 Then
+                    part1 = Replace(part1, "C", "R0C")
+                End If
+                If InStr(part2, "R") = 0 Then
+                    part2 = Replace(part2, "C", "R0C")
+                End If
+                If InStr(part1, "C") = 0 Then
+                    part1 = part1 & "C0"
+                End If
+                If InStr(part2, "C") = 0 Then
+                    part2 = part2 & "C0"
+                End If
+                
+                'handle references to other sheets
+                splt = Split(part1, "!")
+                If UBound(splt) = 1 Then
+                    part0 = splt(0)
+                    part1 = splt(1)
+                End If
+                
+                'extract numbers of rows and columns
+                part1 = Replace(part1, "R", "")
+                part2 = Replace(part2, "R", "")
+                splt1 = Split(part1, "C")
+                splt2 = Split(part2, "C")
+                
+                If (UBound(splt1) <> 1) Or (UBound(splt2) <> 1) Then
+                    Exit Do
+                End If
+                            
+                r1 = Trim(splt1(0)) 'extract numbers from r1c1:r2c2
+                c1 = Trim(splt1(1))
+                r2 = Trim(splt2(0))
+                c2 = Trim(splt2(1))
+                            
+                'handling relative addresses
+                If InStr(r1, "[") Then
+                    r1 = Replace(Replace(r1, "[", ""), "]", "")
+                    r1_r = True
+                End If
+                If InStr(r2, "[") Then
+                    r2 = Replace(Replace(r2, "[", ""), "]", "")
+                    r2_r = True
+                End If
+                If InStr(c1, "[") Then
+                    c1 = Replace(Replace(c1, "[", ""), "]", "")
+                    c1_r = True
+                End If
+                If InStr(c2, "[") Then
+                    c2 = Replace(Replace(c2, "[", ""), "]", "")
+                    c2_r = True
+                End If
+                                
+                'check if all valid numbers
+                If Not (IsNumeric(r1) And IsNumeric(r2) And IsNumeric(c1) And IsNumeric(c2) And IsNumeric(col)) Then Exit Do
+                'convert to ints
+                r1 = CInt(r1):   r2 = CInt(r2):   c1 = CInt(c1):   c2 = CInt(c2)
+                
+                If part0 <> "" Then part0 = part0 & "!"
+                
+                If look = "v" Then
+                    col = c1 + col - 1
+                    findwhere = part0 & r1c1(r1, r2, c1, c1, r1_r, r2_r, c1_r, c1_r)
+                    takefrom = part0 & r1c1(r1, r2, col, col, r1_r, r2_r, c1_r, c1_r)
+                Else
+                    col = r1 + col - 1
+                    findwhere = part0 & r1c1(r1, r1, c1, c2, r1_r, r1_r, c1_r, c2_r)
+                    takefrom = part0 & r1c1(col, col, c1, c2, r1_r, r1_r, c1_r, c2_r)
+                End If
             End If
             
             If mtch = ",-1" Then    ' check if index range is sorted
-                If part0 <> "" Then
-                    Set sh = Sheets(part0)
+                If from_table Then
+                    v = Range(findwhere).Value
                 Else
-                    Set sh = ActiveSheet
+                    If part0 <> "" Then
+                        Set sh = Sheets(part0)
+                    Else
+                        Set sh = ActiveSheet
+                    End If
+                    If look = "v" Then
+                        v = sh.Range(sh.Cells(r1, c1).Address, sh.Cells(r2, c1).Address).Value
+                    Else
+                        v = sh.Range(sh.Cells(r1, c1).Address, sh.Cells(r1, c2).Address).Value
+                    End If
                 End If
-                If look = "v" Then
-                    v = sh.Range(sh.Cells(CInt(r1), CInt(c1)).Address, sh.Cells(CInt(r2), CInt(c1)).Address).Value
-                Else
-                    v = sh.Range(sh.Cells(CInt(r1), CInt(c1)).Address, sh.Cells(CInt(r1), CInt(c2)).Address).Value
-                End If
+                
                 If Not array_sorted(v) Then
                     String_replace_lookup = s
                     Exit Function
                 End If
             End If
-            
-            If part0 <> "" Then
-                 part0 = part0 & "!"
-            End If
-            
+               
             'actual replacement of the function
-            If look = "v" Then
-                col = CStr(CInt(c1) + CInt(col) - 1)
-                s = before & "XLOOKUP(" & arg(1) & "," & part0 & r1c1(r1, r2, c1, c1, r1_r, r2_r, c1_r, c1_r) & "," & part0 & r1c1(r1, r2, col, col, r1_r, r2_r, c1_r, c1_r) & iferr & mtch & ")" & after
-            Else
-                col = CStr(CInt(r1) + CInt(col) - 1)
-                s = before & "XLOOKUP(" & arg(1) & "," & part0 & r1c1(r1, r1, c1, c2, r1_r, r1_r, c1_r, c2_r) & "," & part0 & r1c1(col, col, c1, c2, r1_r, r1_r, c1_r, c2_r) & iferr & mtch & ")" & after
-            End If
-            
+            s = before & "XLOOKUP(" & findwhat & "," & findwhere & "," & takefrom & iferr & mtch & ")" & after
+                        
             s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
             
         Exit Do
