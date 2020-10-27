@@ -1,11 +1,13 @@
 Dim table_names() As String
+Dim table_headers As Collection
 
 ' replace all VLOOKUPS / HLOOKUPS in current selection
 Sub Replace_lookups_in_selection()
     Application.Calculation = xlCalculationManual
     Application.ScreenUpdating = False
     
-    Call Replace_lookups_in_range(Selection)
+    Call get_table_names
+    Call Replace_lookups_in_range(Selection, False)
     
     Application.ScreenUpdating = True
     Application.Calculation = xlCalculationAutomatic
@@ -20,10 +22,12 @@ Sub Replace_all_lookups()
     Dim sh As Worksheet
     Dim i As Integer, N As Integer
     
+    Call get_table_names
+    
     N = ThisWorkbook.Worksheets.Count
     i = 1
     For Each sh In ThisWorkbook.Worksheets
-        Call Replace_lookups_in_range(sh.UsedRange)
+        Call Replace_lookups_in_range(sh.UsedRange, False)
         Application.StatusBar = "Working on sheet " & i & " out of & n"
     Next sh
     Application.StatusBar = False
@@ -34,10 +38,11 @@ End Sub
 
 
 ' replace all VLOOKUPS / HLOOKUPS in a given range
-Sub Replace_lookups_in_range(r As Range)
+Sub Replace_lookups_in_range(r As Range, Optional load_tables As Boolean = True)
     Dim s1 As String, s2 As String, FirstFind As String
     Dim Loc As Range
-    Call get_table_names
+    
+    If load_tables Then Call get_table_names
 
     With r
         Set Loc = .Cells.Find(What:="LOOKUP")
@@ -219,7 +224,7 @@ Function String_replace_lookup(ByVal s As String) As String
                 For Each tbl In table_names ' possibly table?
                     If InStr(arg(2), tbl) Then
                         If look = "v" Then
-                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[v1]" & "," & tbl & "[v" & CInt(col) & "]" & iferr & mtch & ")" & after
+                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[" & table_headers(tbl)(1, 1) & "]" & "," & tbl & "[" & table_headers(tbl)(1, CInt(col)) & "]" & iferr & mtch & ")" & after
                             s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
                             Exit Do
                         Else
@@ -237,14 +242,11 @@ Function String_replace_lookup(ByVal s As String) As String
                             arg(2) = Replace(arg(2), tbl, "")
                             arg(2) = Replace(arg(2), "[", "")
                             arg(2) = Replace(arg(2), "]", "")
-                            arg(2) = Replace(arg(2), "v", "")
                             splt = Split(arg(2), ":")
                             If UBound(splt) <> 1 Then Exit Do 'if not exactly 2 parts abort
-                            
-                            c1 = CInt(Trim(splt(0)))
-                            c2 = CInt(Trim(splt(1)))
+                            c1 = Application.Match(Trim(splt(0)), table_headers(tbl), False)
                             c2 = CInt(col) + c1 - 1
-                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[v" & c1 & "]" & "," & tbl & "[v" & c2 & "]" & iferr & mtch & ")" & after
+                            s = before & "XLOOKUP(" & arg(1) & "," & tbl & "[" & table_headers(tbl)(1, c1) & "]" & "," & tbl & "[" & table_headers(tbl)(1, c2) & "]" & iferr & mtch & ")" & after
                             s = String_replace_lookup(s) 'recursive call to handle multiple v/hlookups in the same formula
                             Exit Do
                         Else
@@ -397,18 +399,25 @@ End Function
 ' get names of all tables
 Sub get_table_names()
     Dim res() As String
+    Dim idx() As Integer
     Dim i As Integer
     Dim ws As Worksheet
     Dim tbl As ListObject
+    Dim v As Variant
+    
+    Set table_headers = New Collection
+    
     i = 1
     For Each ws In Worksheets
         For Each tbl In ws.ListObjects
             ReDim Preserve res(1 To i)
             res(i) = tbl.Name
+            v = Range(tbl.Name).Resize(1).Offset(-1).Value
+            table_headers.Add Item:=v, Key:=tbl.Name
             i = i + 1
         Next tbl
     Next ws
-    res = bubble_sort(res, True)
+    res = bubble_sort(res, True) 'needs to be sorted in reverse so that substrings do not mask bigger strings
     table_names = res
 End Sub
 
@@ -418,23 +427,14 @@ End Sub
 Function bubble_sort(arr As Variant, Optional descending As Boolean = False)
     Dim i As Integer, j As Integer
     Dim t As Variant
-        For i = LBound(arr) To UBound(arr) - 1
+        For i = 1 To UBound(arr) - 1
             For j = i + 1 To UBound(arr)
-                If descending Then
-                    If arr(i) < arr(j) Then
-                        t = arr(j)
-                        arr(j) = arr(i)
-                        arr(i) = t
-                    End If
-                Else
-                    If arr(i) > arr(j) Then
-                        t = arr(j)
-                        arr(j) = arr(i)
-                        arr(i) = t
-                    End If
+                If (arr(i) < arr(j) And descending) Or (arr(i) > arr(j) And Not descending) Then
+                    t = arr(j)
+                    arr(j) = arr(i)
+                    arr(i) = t
                 End If
             Next j
         Next i
     bubble_sort = arr
 End Function
-
