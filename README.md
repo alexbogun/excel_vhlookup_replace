@@ -5,4 +5,6 @@ Handles absolute/relative/named ranges, references on other sheets, both match t
 xlookup_replace.bas contains all necessary functions
 
 test.xlsb contains examples and unit test
+
+Script will intentionally ignore V/HLOOKUPs with 4th argument = TRUE if the indexing array is not sorted, that is to ensure that behavior stays the same
  
